@@ -17,6 +17,10 @@ import {
   SkipBack,
   Layers,
   PictureInPicture,
+  Palette,
+  Clock,
+  Plus,
+  Minus,
 } from 'lucide-react';
 import { PlaybackTarget, SubtitleTrack } from '../../types/index.ts';
 import { storage } from '../../services/storage.ts';
@@ -121,9 +125,22 @@ export const VideoPlayer: React.FC<Props> = ({
   const [currentSourceIndex, setCurrentSourceIndex] = useState(0);
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
 
+  // Subtitle Settings & Customization
+  const [subTab, setSubTab] = useState<'tracks' | 'sync' | 'style'>('tracks');
+  const [subtitleDelay, setSubtitleDelay] = useState<number>(0);
+  const subtitleDelayRef = useRef<number>(0);
+  subtitleDelayRef.current = subtitleDelay;
+
+  const [subColor, setSubColor] = useState<'yellow' | 'white' | 'cyan' | 'green'>('yellow');
+  const [subSize, setSubSize] = useState<'sm' | 'md' | 'lg' | 'xl'>('md');
+  const [subBg, setSubBg] = useState<'box' | 'solid' | 'shadow'>('box');
+
+  // Track playback time to seamlessly continue across source changes
+  const lastTimeRef = useRef<number>(0);
+
   const hideControlsTimeout = useRef<NodeJS.Timeout | null>(null);
 
-  // Initialize and filter subtitles from target
+  // Initialize and filter subtitles from target, prioritizing built-in provider subtitles
   useEffect(() => {
     if (!target) return;
 
@@ -134,15 +151,29 @@ export const VideoPlayer: React.FC<Props> = ({
     const cleanedSubs = [...indoSubs, ...otherSubs];
     setSubtitles(cleanedSubs);
 
+    // Prioritize built-in Indonesian subtitles over OpenSubtitles
     const defaultIndex = cleanedSubs.findIndex(
-      s => s.lang === storage.getDefaultSubtitleLang() || s.isIndonesian
+      s => (s.isIndonesian || s.lang === 'id') && !s.label.toLowerCase().includes('open')
     );
     if (defaultIndex !== -1) {
       setSelectedSubIndex(defaultIndex);
     } else {
-      setSelectedSubIndex('off');
+      const anyIndoIndex = cleanedSubs.findIndex(s => s.isIndonesian || s.lang === 'id');
+      setSelectedSubIndex(anyIndoIndex !== -1 ? anyIndoIndex : 'off');
     }
   }, [target]);
+
+  // Re-sync subtitle cue immediately when timing delay changes
+  useEffect(() => {
+    if (!videoRef.current || activeCuesRef.current.length === 0) return;
+    const cur = videoRef.current.currentTime;
+    const match = activeCuesRef.current.find(
+      c => cur - subtitleDelay >= c.start && cur - subtitleDelay <= c.end
+    );
+    const text = match ? match.text : '';
+    currentSubTextRef.current = text;
+    setCurrentSubtitleText(text);
+  }, [subtitleDelay]);
 
   // Fetch & Parse selected subtitle track
   useEffect(() => {
@@ -236,6 +267,10 @@ export const VideoPlayer: React.FC<Props> = ({
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         setIsBuffering(false);
+        const savedTime = lastTimeRef.current;
+        if (savedTime > 2 && !target.isLive) {
+          video.currentTime = savedTime;
+        }
         video.play().catch(() => {});
       });
 
@@ -269,6 +304,13 @@ export const VideoPlayer: React.FC<Props> = ({
     } else {
       video.src = streamUrl;
       video.load();
+      video.onloadedmetadata = () => {
+        const savedTime = lastTimeRef.current;
+        if (savedTime > 2 && !target.isLive) {
+          video.currentTime = savedTime;
+        }
+        video.play().catch(() => {});
+      };
       video.play().catch(() => {});
     }
 
@@ -409,6 +451,35 @@ export const VideoPlayer: React.FC<Props> = ({
     return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
+  const getSubColorClass = () => {
+    switch (subColor) {
+      case 'white': return 'text-white';
+      case 'cyan': return 'text-[#38bdf8]';
+      case 'green': return 'text-[#34d399]';
+      case 'yellow':
+      default: return 'text-[#ffe866]';
+    }
+  };
+
+  const getSubSizeClass = () => {
+    switch (subSize) {
+      case 'sm': return 'text-xs md:text-sm';
+      case 'lg': return 'text-base md:text-xl';
+      case 'xl': return 'text-lg md:text-2xl';
+      case 'md':
+      default: return 'text-sm md:text-lg';
+    }
+  };
+
+  const getSubBgClass = () => {
+    switch (subBg) {
+      case 'solid': return 'bg-black px-4 py-1.5 rounded-lg';
+      case 'shadow': return 'bg-transparent px-2 py-1 drop-shadow-[0_2px_4px_rgba(0,0,0,1)]';
+      case 'box':
+      default: return 'bg-black/85 backdrop-blur-md px-5 py-2 rounded-xl border border-white/10 shadow-[0_4px_30px_rgba(0,0,0,0.95)]';
+    }
+  };
+
   return (
     <div
       ref={containerRef}
@@ -427,11 +498,13 @@ export const VideoPlayer: React.FC<Props> = ({
           if (!videoRef.current) return;
           const cur = videoRef.current.currentTime;
           setCurrentTime(cur);
+          lastTimeRef.current = cur;
 
-          // Real-time Subtitle Cue Synchronization
+          // Real-time Subtitle Cue Synchronization with Timing Offset Support
           const cues = activeCuesRef.current;
+          const delay = subtitleDelayRef.current;
           if (cues.length > 0) {
-            const match = cues.find(c => cur >= c.start && cur <= c.end);
+            const match = cues.find(c => cur - delay >= c.start && cur - delay <= c.end);
             const text = match ? match.text : '';
             if (text !== currentSubTextRef.current) {
               currentSubTextRef.current = text;
@@ -495,7 +568,9 @@ export const VideoPlayer: React.FC<Props> = ({
             showControls ? 'bottom-28' : 'bottom-8'
           }`}
         >
-          <span className="bg-black/85 backdrop-blur-md px-5 py-2 rounded-xl border border-white/10 shadow-[0_4px_30px_rgba(0,0,0,0.95)] text-[#ffe866] font-semibold text-center text-sm md:text-lg leading-relaxed whitespace-pre-line drop-shadow-[0_2px_4px_rgba(0,0,0,1)] tracking-wide select-none">
+          <span
+            className={`${getSubBgClass()} ${getSubColorClass()} ${getSubSizeClass()} font-semibold text-center leading-relaxed whitespace-pre-line select-none`}
+          >
             {currentSubtitleText}
           </span>
         </div>
@@ -704,7 +779,7 @@ export const VideoPlayer: React.FC<Props> = ({
 
           {/* Right: Subtitles, Speed, PiP, Fullscreen */}
           <div className="flex items-center gap-2">
-            {/* Subtitles */}
+            {/* Subtitles Drawer */}
             <div className="relative">
               <button
                 onClick={() => setShowSubtitleMenu(!showSubtitleMenu)}
@@ -713,44 +788,277 @@ export const VideoPlayer: React.FC<Props> = ({
                     ? 'text-primary bg-primary/20'
                     : 'text-white/80 hover:text-white hover:bg-white/10'
                 }`}
-                title="Subtitles"
+                title="Subtitle Settings"
               >
                 <Subtitles className="w-4 h-4" />
               </button>
+
               {showSubtitleMenu && (
-                <div className="absolute right-0 bottom-12 w-56 max-h-64 overflow-y-auto bg-[#0c120f]/95 backdrop-blur-xl border border-[#1e2a25] rounded-2xl shadow-2xl p-2 space-y-1 z-50">
-                  <div className="sticky top-0 bg-[#0c120f] pb-1.5 border-b border-[#18231e] mb-1">
-                    <span className="block text-[10px] uppercase font-mono font-bold text-[#687c72] px-2 pt-0.5">
-                      Subtitles ({subtitles.length})
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setSelectedSubIndex('off');
-                      setShowSubtitleMenu(false);
-                    }}
-                    className={`w-full text-left px-3 py-1.5 rounded-xl text-xs font-semibold ${
-                      selectedSubIndex === 'off' ? 'bg-primary text-black font-bold' : 'text-[#8ea499] hover:bg-white/10'
-                    }`}
-                  >
-                    Off
-                  </button>
-                  {subtitles.map((sub, i) => (
+                <div className="absolute right-0 bottom-12 w-80 max-h-[380px] bg-[#0c120f]/95 backdrop-blur-2xl border border-[#1e2a25] rounded-2xl shadow-2xl p-3 z-50 flex flex-col gap-3">
+                  {/* Tabs Header */}
+                  <div className="flex items-center justify-between border-b border-[#18231e] pb-2">
+                    <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl">
+                      <button
+                        onClick={() => setSubTab('tracks')}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                          subTab === 'tracks'
+                            ? 'bg-primary text-black font-bold shadow-sm'
+                            : 'text-[#8ea499] hover:text-white'
+                        }`}
+                      >
+                        <Subtitles className="w-3.5 h-3.5" />
+                        <span>Bahasa</span>
+                      </button>
+                      <button
+                        onClick={() => setSubTab('sync')}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                          subTab === 'sync'
+                            ? 'bg-primary text-black font-bold shadow-sm'
+                            : 'text-[#8ea499] hover:text-white'
+                        }`}
+                      >
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>Sync</span>
+                      </button>
+                      <button
+                        onClick={() => setSubTab('style')}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                          subTab === 'style'
+                            ? 'bg-primary text-black font-bold shadow-sm'
+                            : 'text-[#8ea499] hover:text-white'
+                        }`}
+                      >
+                        <Palette className="w-3.5 h-3.5" />
+                        <span>Gaya</span>
+                      </button>
+                    </div>
+
                     <button
-                      key={i}
-                      onClick={() => {
-                        setSelectedSubIndex(i);
-                        setShowSubtitleMenu(false);
-                      }}
-                      className={`w-full text-left px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                        selectedSubIndex === i
-                          ? 'bg-primary text-black font-bold shadow-md shadow-primary/20'
-                          : 'text-[#8ea499] hover:bg-white/10 hover:text-white'
-                      }`}
+                      onClick={() => setShowSubtitleMenu(false)}
+                      className="p-1 text-[#8ea499] hover:text-white rounded-lg hover:bg-white/10"
                     >
-                      {sub.label} {sub.isIndonesian && '🇮🇩'}
+                      <X className="w-3.5 h-3.5" />
                     </button>
-                  ))}
+                  </div>
+
+                  {/* Tab Content */}
+                  <div className="flex-1 overflow-y-auto max-h-[280px] pr-1 space-y-2">
+                    {/* 1. Tracks Tab */}
+                    {subTab === 'tracks' && (
+                      <div className="space-y-1">
+                        <button
+                          onClick={() => setSelectedSubIndex('off')}
+                          className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all ${
+                            selectedSubIndex === 'off'
+                              ? 'bg-primary text-black font-bold shadow-md shadow-primary/20'
+                              : 'text-[#8ea499] hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          <span>Matikan Subtitle (Off)</span>
+                          {selectedSubIndex === 'off' && <span className="text-[10px] font-bold">Aktif</span>}
+                        </button>
+                        {subtitles.map((sub, i) => {
+                          const isSelected = selectedSubIndex === i;
+                          const isBuiltIn = !sub.label.toLowerCase().includes('open');
+                          return (
+                            <button
+                              key={i}
+                              onClick={() => setSelectedSubIndex(i)}
+                              className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between transition-all ${
+                                isSelected
+                                  ? 'bg-primary text-black font-bold shadow-md shadow-primary/20'
+                                  : 'text-[#9cb0a5] hover:bg-white/10 hover:text-white'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 truncate">
+                                <span>{sub.label}</span>
+                                {sub.isIndonesian && <span>🇮🇩</span>}
+                              </div>
+                              <span
+                                className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                                  isSelected
+                                    ? 'bg-black/20 text-black font-bold'
+                                    : isBuiltIn
+                                    ? 'bg-[#10b981]/20 text-primary'
+                                    : 'bg-white/10 text-white/60'
+                                }`}
+                              >
+                                {isBuiltIn ? 'Built-in' : 'OpenSubs'}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* 2. Sync Tab */}
+                    {subTab === 'sync' && (
+                      <div className="space-y-3 p-1">
+                        <div className="bg-black/40 border border-[#1e2a25] rounded-xl p-3 text-center">
+                          <span className="text-[10px] uppercase font-mono font-bold text-[#687c72] block mb-1">
+                            Subtitle Timing Delay
+                          </span>
+                          <span className="text-xl font-mono font-bold text-primary">
+                            {subtitleDelay > 0 ? `+${subtitleDelay.toFixed(2)}s` : `${subtitleDelay.toFixed(2)}s`}
+                          </span>
+                          <p className="text-[10px] text-[#687c72] mt-1">
+                            {subtitleDelay > 0
+                              ? 'Teks muncul lebih lambat'
+                              : subtitleDelay < 0
+                              ? 'Teks muncul lebih cepat'
+                              : 'Sinkronisasi pas (default)'}
+                          </p>
+                        </div>
+
+                        {/* Quick adjustments */}
+                        <div className="grid grid-cols-3 gap-1.5">
+                          <button
+                            onClick={() => setSubtitleDelay((d) => Math.round((d - 1) * 100) / 100)}
+                            className="px-2 py-1.5 rounded-lg bg-white/5 hover:bg-white/15 text-white font-mono text-xs font-semibold transition-all"
+                          >
+                            -1.0s
+                          </button>
+                          <button
+                            onClick={() => setSubtitleDelay(0)}
+                            className="px-2 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-primary font-mono text-xs font-bold transition-all"
+                          >
+                            Reset 0s
+                          </button>
+                          <button
+                            onClick={() => setSubtitleDelay((d) => Math.round((d + 1) * 100) / 100)}
+                            className="px-2 py-1.5 rounded-lg bg-white/5 hover:bg-white/15 text-white font-mono text-xs font-semibold transition-all"
+                          >
+                            +1.0s
+                          </button>
+                        </div>
+
+                        {/* Fine adjustments */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => setSubtitleDelay((d) => Math.round((d - 0.25) * 100) / 100)}
+                            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-all"
+                          >
+                            <Minus className="w-3.5 h-3.5 text-primary" />
+                            <span>-0.25s (Lebih Cepat)</span>
+                          </button>
+                          <button
+                            onClick={() => setSubtitleDelay((d) => Math.round((d + 0.25) * 100) / 100)}
+                            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-all"
+                          >
+                            <Plus className="w-3.5 h-3.5 text-primary" />
+                            <span>+0.25s (Lebih Lambat)</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 3. Style Tab */}
+                    {subTab === 'style' && (
+                      <div className="space-y-3 p-1">
+                        {/* Live Preview */}
+                        <div className="bg-black/60 border border-[#1e2a25] rounded-xl p-3 flex flex-col items-center justify-center min-h-[70px]">
+                          <span className="text-[9px] uppercase font-mono font-bold text-[#687c72] mb-1">
+                            Live Preview
+                          </span>
+                          <span
+                            className={`${getSubBgClass()} ${getSubColorClass()} ${getSubSizeClass()} font-semibold text-center leading-relaxed`}
+                          >
+                            Contoh Teks Subtitle
+                          </span>
+                        </div>
+
+                        {/* Font Color */}
+                        <div>
+                          <label className="text-[11px] font-mono font-bold text-[#8ea499] block mb-1.5">
+                            Warna Teks
+                          </label>
+                          <div className="grid grid-cols-4 gap-1.5">
+                            {(
+                              [
+                                { key: 'yellow', label: 'Kuning', color: '#ffe866' },
+                                { key: 'white', label: 'Putih', color: '#ffffff' },
+                                { key: 'cyan', label: 'Cyan', color: '#38bdf8' },
+                                { key: 'green', label: 'Hijau', color: '#34d399' },
+                              ] as const
+                            ).map((c) => (
+                              <button
+                                key={c.key}
+                                onClick={() => setSubColor(c.key)}
+                                className={`flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
+                                  subColor === c.key
+                                    ? 'border-primary bg-primary/20 text-white shadow-sm'
+                                    : 'border-white/10 bg-white/5 text-[#8ea499] hover:bg-white/10'
+                                }`}
+                              >
+                                <span
+                                  className="w-2.5 h-2.5 rounded-full"
+                                  style={{ backgroundColor: c.color }}
+                                />
+                                <span>{c.label}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Font Size */}
+                        <div>
+                          <label className="text-[11px] font-mono font-bold text-[#8ea499] block mb-1.5">
+                            Ukuran Huruf
+                          </label>
+                          <div className="grid grid-cols-4 gap-1.5">
+                            {(
+                              [
+                                { key: 'sm', label: 'Kecil' },
+                                { key: 'md', label: 'Sedang' },
+                                { key: 'lg', label: 'Besar' },
+                                { key: 'xl', label: 'Ekstra' },
+                              ] as const
+                            ).map((s) => (
+                              <button
+                                key={s.key}
+                                onClick={() => setSubSize(s.key)}
+                                className={`px-2 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
+                                  subSize === s.key
+                                    ? 'border-primary bg-primary text-black font-bold shadow-sm'
+                                    : 'border-white/10 bg-white/5 text-[#8ea499] hover:bg-white/10 hover:text-white'
+                                }`}
+                              >
+                                {s.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Background Style */}
+                        <div>
+                          <label className="text-[11px] font-mono font-bold text-[#8ea499] block mb-1.5">
+                            Latar Belakang (Box)
+                          </label>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {(
+                              [
+                                { key: 'box', label: 'Blur Box' },
+                                { key: 'solid', label: 'Solid Black' },
+                                { key: 'shadow', label: 'Shadow Only' },
+                              ] as const
+                            ).map((b) => (
+                              <button
+                                key={b.key}
+                                onClick={() => setSubBg(b.key)}
+                                className={`px-2 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
+                                  subBg === b.key
+                                    ? 'border-primary bg-primary text-black font-bold shadow-sm'
+                                    : 'border-white/10 bg-white/5 text-[#8ea499] hover:bg-white/10 hover:text-white'
+                                }`}
+                              >
+                                {b.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
