@@ -18,7 +18,7 @@ export const zetsuCore = {
 
   async getLiveMatches(): Promise<SportsMatch[]> {
     try {
-      const res = await fetch(`${this.getBaseUrl()}/api/matches/live`, { signal: AbortSignal.timeout(4000) });
+      const res = await fetch(`${this.getBaseUrl()}/api/matches/live`, { signal: AbortSignal.timeout(6000) });
       if (!res.ok) throw new Error('Failed to fetch live matches');
       const data = await res.json();
       return (data || []).map((m: any) => ({
@@ -33,7 +33,7 @@ export const zetsuCore = {
 
   async getTodayMatches(): Promise<SportsMatch[]> {
     try {
-      const res = await fetch(`${this.getBaseUrl()}/api/matches/all-today`, { signal: AbortSignal.timeout(4000) });
+      const res = await fetch(`${this.getBaseUrl()}/api/matches/all-today`, { signal: AbortSignal.timeout(6000) });
       if (!res.ok) throw new Error('Failed to fetch today matches');
       return await res.json();
     } catch {
@@ -43,7 +43,7 @@ export const zetsuCore = {
 
   async getAllMatches(): Promise<SportsMatch[]> {
     try {
-      const res = await fetch(`${this.getBaseUrl()}/api/matches/all`, { signal: AbortSignal.timeout(4000) });
+      const res = await fetch(`${this.getBaseUrl()}/api/matches/all`, { signal: AbortSignal.timeout(6000) });
       if (!res.ok) throw new Error('Failed to fetch all matches');
       return await res.json();
     } catch {
@@ -53,7 +53,7 @@ export const zetsuCore = {
 
   async getSportMatches(sport: string): Promise<SportsMatch[]> {
     try {
-      const res = await fetch(`${this.getBaseUrl()}/api/matches/${sport}`, { signal: AbortSignal.timeout(4000) });
+      const res = await fetch(`${this.getBaseUrl()}/api/matches/${sport}`, { signal: AbortSignal.timeout(6000) });
       if (!res.ok) throw new Error('Failed to fetch sport matches');
       return await res.json();
     } catch {
@@ -73,12 +73,12 @@ export const zetsuCore = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ matchId, source, stream: streamNo }),
+        signal: AbortSignal.timeout(12000),
       });
       return await res.json();
     } catch (e: any) {
       return {
         ok: true,
-        // Demo fallback HLS live stream
         m3u8: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
         referer: 'https://streamed.st/',
       };
@@ -90,10 +90,13 @@ export const zetsuCore = {
     sources: StreamSource[];
     subtitles: SubtitleTrack[];
     title?: string;
+    error?: string;
   }> {
     try {
-      const res = await fetch(`${this.getBaseUrl()}/api/movies/${tmdbId}`, { signal: AbortSignal.timeout(8000) });
-      if (!res.ok) throw new Error('Resolve failed');
+      const res = await fetch(`${this.getBaseUrl()}/api/movies/${tmdbId}`, { 
+        signal: AbortSignal.timeout(25000) 
+      });
+      if (!res.ok) throw new Error('Backend HTTP error');
       const data = await res.json();
       return {
         success: data.success ?? true,
@@ -105,39 +108,13 @@ export const zetsuCore = {
         subtitles: data.subtitles || [],
         title: data.title,
       };
-    } catch {
-      // Return realistic mock sources for preview playback
+    } catch (err: any) {
+      console.warn('Backend unavailable, falling back:', err);
       return {
-        success: true,
-        sources: [
-          {
-            source: 'rivestream',
-            label: 'Rivestream (1080p FHD)',
-            url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
-            type: 'mp4',
-            quality: '1080p',
-          },
-          {
-            source: 'moviebox',
-            label: 'MovieBox (720p CDN)',
-            url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
-            type: 'mp4',
-            quality: '720p',
-          },
-        ],
-        subtitles: [
-          {
-            label: 'Indonesian',
-            lang: 'id',
-            file: '',
-            isIndonesian: true,
-          },
-          {
-            label: 'English',
-            lang: 'en',
-            file: '',
-          },
-        ],
+        success: false,
+        error: 'Backend server at http://localhost:3000 is not responding. Please start Zetsu Core.',
+        sources: [],
+        subtitles: [],
       };
     }
   },
@@ -147,10 +124,13 @@ export const zetsuCore = {
     sources: StreamSource[];
     subtitles: SubtitleTrack[];
     title?: string;
+    error?: string;
   }> {
     try {
-      const res = await fetch(`${this.getBaseUrl()}/api/tv/${tmdbId}/${season}/${episode}`, { signal: AbortSignal.timeout(8000) });
-      if (!res.ok) throw new Error('Resolve failed');
+      const res = await fetch(`${this.getBaseUrl()}/api/tv/${tmdbId}/${season}/${episode}`, { 
+        signal: AbortSignal.timeout(25000) 
+      });
+      if (!res.ok) throw new Error('Backend HTTP error');
       const data = await res.json();
       return {
         success: data.success ?? true,
@@ -162,31 +142,13 @@ export const zetsuCore = {
         subtitles: data.subtitles || [],
         title: data.title,
       };
-    } catch {
+    } catch (err: any) {
+      console.warn('Backend unavailable, falling back:', err);
       return {
-        success: true,
-        sources: [
-          {
-            source: 'rivestream',
-            label: 'Rivestream (1080p FHD)',
-            url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
-            type: 'mp4',
-            quality: '1080p',
-          },
-        ],
-        subtitles: [
-          {
-            label: 'Indonesian',
-            lang: 'id',
-            file: '',
-            isIndonesian: true,
-          },
-          {
-            label: 'English',
-            lang: 'en',
-            file: '',
-          },
-        ],
+        success: false,
+        error: 'Backend server at http://localhost:3000 is not responding. Please start Zetsu Core.',
+        sources: [],
+        subtitles: [],
       };
     }
   },

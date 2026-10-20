@@ -31,6 +31,7 @@ export const MediaDetailModal: React.FC<Props> = ({
   const [episodes, setEpisodes] = useState<TvEpisode[]>([]);
   const [isLoadingEpisodes, setIsLoadingEpisodes] = useState(false);
   const [isResolvingStream, setIsResolvingStream] = useState(false);
+  const [streamError, setStreamError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!item) return;
@@ -59,6 +60,7 @@ export const MediaDetailModal: React.FC<Props> = ({
 
   const handlePlayMovie = async () => {
     setIsResolvingStream(true);
+    setStreamError(null);
     const result = await zetsuCore.resolveMovieStreams(String(item.id));
     setIsResolvingStream(false);
 
@@ -72,11 +74,14 @@ export const MediaDetailModal: React.FC<Props> = ({
         tmdbId: String(item.id),
         backdrop: item.backdropPath,
       });
+    } else {
+      setStreamError(result.error || 'No active streams found. Ensure Zetsu Core server is running at http://localhost:3000.');
     }
   };
 
   const handlePlayEpisode = async (ep: TvEpisode) => {
     setIsResolvingStream(true);
+    setStreamError(null);
     const result = await zetsuCore.resolveTvStreams(
       String(item.id),
       selectedSeason,
@@ -96,6 +101,8 @@ export const MediaDetailModal: React.FC<Props> = ({
         episode: ep.episodeNumber,
         backdrop: ep.stillPath || item.backdropPath,
       });
+    } else {
+      setStreamError(result.error || 'No active streams found. Ensure Zetsu Core server is running at http://localhost:3000.');
     }
   };
 
@@ -183,6 +190,12 @@ export const MediaDetailModal: React.FC<Props> = ({
                 )}
               </button>
             </div>
+
+            {streamError && (
+              <div className="mt-2 p-3 bg-red-950/80 border border-red-800/80 rounded-xl text-xs text-red-200 backdrop-blur-md">
+                ⚠️ {streamError}
+              </div>
+            )}
           </div>
         </div>
 
