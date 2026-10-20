@@ -2,6 +2,27 @@ import { SportsMatch, StreamSource, SubtitleTrack } from '../types/index.ts';
 import { storage } from './storage.ts';
 import { MOCK_SPORTS_MATCHES } from './mockData.ts';
 
+async function fetchWithWarmup(url: string, init?: RequestInit, maxRetries = 4): Promise<Response> {
+  let lastError: any;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const res = await fetch(url, init);
+      if (res.ok) return res;
+      if (res.status >= 500 && attempt < maxRetries - 1) {
+        await new Promise((r) => setTimeout(r, 800));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxRetries - 1) {
+        await new Promise((r) => setTimeout(r, 800));
+      }
+    }
+  }
+  throw lastError || new Error('Connection failed');
+}
+
 export const zetsuCore = {
   getBaseUrl(): string {
     return storage.getBackendUrl();
@@ -93,7 +114,7 @@ export const zetsuCore = {
     error?: string;
   }> {
     try {
-      const res = await fetch(`${this.getBaseUrl()}/api/movies/${tmdbId}`, { 
+      const res = await fetchWithWarmup(`${this.getBaseUrl()}/api/movies/${tmdbId}`, { 
         signal: AbortSignal.timeout(25000) 
       });
       if (!res.ok) throw new Error('Backend HTTP error');
@@ -130,7 +151,7 @@ export const zetsuCore = {
     error?: string;
   }> {
     try {
-      const res = await fetch(`${this.getBaseUrl()}/api/tv/${tmdbId}/${season}/${episode}`, { 
+      const res = await fetchWithWarmup(`${this.getBaseUrl()}/api/tv/${tmdbId}/${season}/${episode}`, { 
         signal: AbortSignal.timeout(25000) 
       });
       if (!res.ok) throw new Error('Backend HTTP error');

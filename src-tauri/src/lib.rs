@@ -1,3 +1,4 @@
+use std::fs::File;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
@@ -16,24 +17,8 @@ fn is_port_in_use(port: u16) -> bool {
     .is_ok()
 }
 
-fn find_backend_paths(app: &tauri::App) -> Option<(PathBuf, PathBuf)> {
-    // 1. Try finding inside Tauri resource_dir
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        let candidates = [
-            resource_dir.join("resources").join("core"),
-            resource_dir.join("core"),
-        ];
-
-        for base in &candidates {
-            let node_bin = base.join("node.exe");
-            let main_script = base.join("dist").join("server").join("main.js");
-            if node_bin.exists() && main_script.exists() {
-                return Some((node_bin, main_script));
-            }
-        }
-    }
-
-    // 2. Try adjacent to current_exe
+fn find_backend_paths(app: &tauri::App) -> Option<(PathBuf, PathBuf, PathBuf)> {
+    // 1. Try adjacent to current executable (Standard for installed NSIS and release binary)
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(parent) = exe_path.parent() {
             let candidates = [
@@ -44,8 +29,24 @@ fn find_backend_paths(app: &tauri::App) -> Option<(PathBuf, PathBuf)> {
                 let node_bin = base.join("node.exe");
                 let main_script = base.join("dist").join("server").join("main.js");
                 if node_bin.exists() && main_script.exists() {
-                    return Some((node_bin, main_script));
+                    return Some((node_bin, main_script, base.clone()));
                 }
+            }
+        }
+    }
+
+    // 2. Try finding inside Tauri resource_dir
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let candidates = [
+            resource_dir.join("resources").join("core"),
+            resource_dir.join("core"),
+        ];
+
+        for base in &candidates {
+            let node_bin = base.join("node.exe");
+            let main_script = base.join("dist").join("server").join("main.js");
+            if node_bin.exists() && main_script.exists() {
+                return Some((node_bin, main_script, base.clone()));
             }
         }
     }
@@ -54,7 +55,7 @@ fn find_backend_paths(app: &tauri::App) -> Option<(PathBuf, PathBuf)> {
     let dev_dir = Path::new("d:\\zetsu-core");
     let dev_script = dev_dir.join("dist").join("server").join("main.js");
     if dev_script.exists() {
-        return Some((PathBuf::from("node"), dev_script));
+        return Some((PathBuf::from("node"), dev_script, dev_dir.to_path_buf()));
     }
 
     None
@@ -71,14 +72,19 @@ pub fn run() {
         .setup(move |app| {
             // Check if Zetsu Core is already running on port 3000
             if !is_port_in_use(3000) {
-                if let Some((node_exe, main_script)) = find_backend_paths(app) {
-                    println!("[Zetsu] Starting internal backend: {:?} with {:?}", node_exe, main_script);
+                if let Some((node_exe, main_script, work_dir)) = find_backend_paths(app) {
+                    println!("[Zetsu] Launching internal backend: {:?} with {:?}", node_exe, main_script);
                     let mut cmd = Command::new(&node_exe);
                     cmd.arg(&main_script);
+                    cmd.current_dir(&work_dir);
 
-                    // Set working directory to the folder containing package.json
-                    if let Some(parent) = main_script.parent().and_then(|p| p.parent()) {
-                        cmd.current_dir(parent);
+                    // Redirect stdout & stderr to work_dir/core.log to avoid GUI process EBADF crashes on Windows
+                    let log_path = work_dir.join("core.log");
+                    if let Ok(file) = File::create(&log_path) {
+                        if let Ok(err_file) = file.try_clone() {
+                            cmd.stdout(file);
+                            cmd.stderr(err_file);
+                        }
                     }
 
                     #[cfg(windows)]
