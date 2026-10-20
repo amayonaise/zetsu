@@ -58,6 +58,7 @@ export const VideoPlayer: React.FC<Props> = ({
   const [subtitles, setSubtitles] = useState<SubtitleTrack[]>([]);
   const [selectedSubtitle, setSelectedSubtitle] = useState<string>('off');
   const [currentSourceIndex, setCurrentSourceIndex] = useState(0);
+  const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
 
   const hideControlsTimeout = useRef<NodeJS.Timeout | null>(null);
 
@@ -91,6 +92,21 @@ export const VideoPlayer: React.FC<Props> = ({
       hlsRef.current = null;
     }
 
+    const triggerAutoFallback = (reason: string) => {
+      console.warn(`[Player] Fallback triggered (${reason}). Current index:`, currentSourceIndex);
+      const totalSources = target.sources?.length || 0;
+      if (currentSourceIndex + 1 < totalSources) {
+        const nextIdx = currentSourceIndex + 1;
+        const nextServer = target.sources?.[nextIdx]?.label || `Server ${nextIdx + 1}`;
+        setFallbackNotice(`Server bermasalah. Mengalihkan ke ${nextServer}...`);
+        setTimeout(() => setFallbackNotice(null), 3800);
+        setCurrentSourceIndex(nextIdx);
+      } else {
+        setFallbackNotice('Semua server streaming sedang tidak dapat dijangkau.');
+        setTimeout(() => setFallbackNotice(null), 5000);
+      }
+    };
+
     const isHlsStream = streamUrl.includes('.m3u8') || target.isLive;
 
     if (isHlsStream && Hls.isSupported()) {
@@ -109,6 +125,7 @@ export const VideoPlayer: React.FC<Props> = ({
         video.play().catch(() => {});
       });
 
+      let netErrorCount = 0;
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (data.fatal) {
           if (!streamUrl.includes('/api/hls') && !streamUrl.includes('/api/proxy')) {
@@ -119,13 +136,18 @@ export const VideoPlayer: React.FC<Props> = ({
           }
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
-              hls.startLoad();
+              netErrorCount++;
+              if (netErrorCount > 2) {
+                triggerAutoFallback('Network error');
+              } else {
+                hls.startLoad();
+              }
               break;
             case Hls.ErrorTypes.MEDIA_ERROR:
               hls.recoverMediaError();
               break;
             default:
-              hls.destroy();
+              triggerAutoFallback('Fatal player error');
               break;
           }
         }
@@ -354,6 +376,14 @@ export const VideoPlayer: React.FC<Props> = ({
           <span className="mt-3 text-xs font-mono text-[#cbd9d2] tracking-wider uppercase">
             Buffering Stream...
           </span>
+        </div>
+      )}
+
+      {/* Auto-Fallback Toast Notification */}
+      {fallbackNotice && (
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-[#0c120f]/95 border border-primary/50 text-primary text-xs font-semibold rounded-full shadow-[0_4px_25px_rgba(0,0,0,0.8)] backdrop-blur-md flex items-center gap-2.5 animate-bounce">
+          <span className="w-2 h-2 rounded-full bg-primary animate-ping" />
+          <span>{fallbackNotice}</span>
         </div>
       )}
 
