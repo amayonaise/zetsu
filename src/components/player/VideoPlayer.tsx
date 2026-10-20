@@ -64,8 +64,14 @@ export const VideoPlayer: React.FC<Props> = ({
   useEffect(() => {
     if (!target) return;
 
-    setSubtitles(target.subtitles || []);
-    const defaultSub = (target.subtitles || []).find(
+    // Filter subtitles: Prioritize all Indonesian, and limit other languages to top 8 distinct tracks
+    const rawSubs = target.subtitles || [];
+    const indoSubs = rawSubs.filter(s => s.isIndonesian || s.lang === 'id');
+    const otherSubs = rawSubs.filter(s => !s.isIndonesian && s.lang !== 'id').slice(0, 8);
+    const cleanedSubs = [...indoSubs, ...otherSubs];
+    setSubtitles(cleanedSubs);
+
+    const defaultSub = cleanedSubs.find(
       s => s.lang === storage.getDefaultSubtitleLang() || s.isIndonesian
     );
     if (defaultSub) {
@@ -396,10 +402,12 @@ export const VideoPlayer: React.FC<Props> = ({
                 <span>Source: {target.sources[currentSourceIndex]?.label || 'Default'}</span>
               </button>
               {showSourceMenu && (
-                <div className="absolute right-0 top-10 w-52 bg-[#0c120f] border border-[#1e2a25] rounded-xl shadow-2xl p-2 space-y-1 z-50">
-                  <span className="block text-[10px] uppercase font-mono font-bold text-[#687c72] px-2 py-1">
-                    Select Server
-                  </span>
+                <div className="absolute right-0 top-11 w-64 max-h-72 overflow-y-auto bg-[#0c120f]/95 backdrop-blur-xl border border-[#1e2a25] rounded-2xl shadow-2xl p-2 space-y-1 z-50">
+                  <div className="sticky top-0 bg-[#0c120f] pb-1.5 border-b border-[#18231e] mb-1">
+                    <span className="block text-[10px] uppercase font-mono font-bold text-[#687c72] px-2 pt-0.5">
+                      Available Servers ({target.sources.length})
+                    </span>
+                  </div>
                   {target.sources.map((src, idx) => (
                     <button
                       key={idx}
@@ -407,9 +415,9 @@ export const VideoPlayer: React.FC<Props> = ({
                         setCurrentSourceIndex(idx);
                         setShowSourceMenu(false);
                       }}
-                      className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
                         currentSourceIndex === idx
-                          ? 'bg-primary text-black font-bold'
+                          ? 'bg-primary text-black font-bold shadow-md shadow-primary/20'
                           : 'text-[#9cb0a5] hover:bg-white/10 hover:text-white'
                       }`}
                     >
@@ -548,17 +556,19 @@ export const VideoPlayer: React.FC<Props> = ({
                 <Subtitles className="w-4 h-4" />
               </button>
               {showSubtitleMenu && (
-                <div className="absolute right-0 bottom-12 w-48 bg-[#0c120f] border border-[#1e2a25] rounded-xl shadow-2xl p-2 space-y-1 z-50">
-                  <span className="block text-[10px] uppercase font-mono font-bold text-[#687c72] px-2 py-1">
-                    Subtitles
-                  </span>
+                <div className="absolute right-0 bottom-12 w-56 max-h-64 overflow-y-auto bg-[#0c120f]/95 backdrop-blur-xl border border-[#1e2a25] rounded-2xl shadow-2xl p-2 space-y-1 z-50">
+                  <div className="sticky top-0 bg-[#0c120f] pb-1.5 border-b border-[#18231e] mb-1">
+                    <span className="block text-[10px] uppercase font-mono font-bold text-[#687c72] px-2 pt-0.5">
+                      Subtitles ({subtitles.length})
+                    </span>
+                  </div>
                   <button
                     onClick={() => {
                       setSelectedSubtitle('off');
                       setShowSubtitleMenu(false);
                     }}
-                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-semibold ${
-                      selectedSubtitle === 'off' ? 'bg-primary text-black' : 'text-[#8ea499] hover:bg-white/10'
+                    className={`w-full text-left px-3 py-1.5 rounded-xl text-xs font-semibold ${
+                      selectedSubtitle === 'off' ? 'bg-primary text-black font-bold' : 'text-[#8ea499] hover:bg-white/10'
                     }`}
                   >
                     Off
@@ -570,10 +580,10 @@ export const VideoPlayer: React.FC<Props> = ({
                         setSelectedSubtitle(sub.lang);
                         setShowSubtitleMenu(false);
                       }}
-                      className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-semibold ${
+                      className={`w-full text-left px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
                         selectedSubtitle === sub.lang
-                          ? 'bg-primary text-black'
-                          : 'text-[#8ea499] hover:bg-white/10'
+                          ? 'bg-primary text-black font-bold shadow-md shadow-primary/20'
+                          : 'text-[#8ea499] hover:bg-white/10 hover:text-white'
                       }`}
                     >
                       {sub.label} {sub.isIndonesian && '🇮🇩'}
