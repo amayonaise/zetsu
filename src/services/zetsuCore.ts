@@ -103,9 +103,12 @@ export const zetsuCore = {
         sources: (data.sources || []).map((s: any) => ({
           ...s,
           label: s.label || s.source,
-          url: s.url,
+          url: s.url.startsWith('/') ? `${this.getBaseUrl()}${s.url}` : s.url,
         })),
-        subtitles: data.subtitles || [],
+        subtitles: (data.subtitles || []).map((sub: any) => ({
+          ...sub,
+          file: sub.file && sub.file.startsWith('/') ? `${this.getBaseUrl()}${sub.file}` : sub.file,
+        })),
         title: data.title,
       };
     } catch (err: any) {
@@ -137,9 +140,12 @@ export const zetsuCore = {
         sources: (data.sources || []).map((s: any) => ({
           ...s,
           label: s.label || s.source,
-          url: s.url,
+          url: s.url.startsWith('/') ? `${this.getBaseUrl()}${s.url}` : s.url,
         })),
-        subtitles: data.subtitles || [],
+        subtitles: (data.subtitles || []).map((sub: any) => ({
+          ...sub,
+          file: sub.file && sub.file.startsWith('/') ? `${this.getBaseUrl()}${sub.file}` : sub.file,
+        })),
         title: data.title,
       };
     } catch (err: any) {

@@ -105,6 +105,12 @@ export const VideoPlayer: React.FC<Props> = ({
 
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (data.fatal) {
+          if (!streamUrl.includes('/api/hls') && !streamUrl.includes('/api/proxy')) {
+            const localProxyUrl = `http://localhost:3000/api/hls?url=${encodeURIComponent(streamUrl)}&referer=${encodeURIComponent(target.referer || 'https://embed.st/')}`;
+            hls.loadSource(localProxyUrl);
+            hls.attachMedia(video);
+            return;
+          }
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
               hls.startLoad();
@@ -309,8 +315,31 @@ export const VideoPlayer: React.FC<Props> = ({
           }
         }}
         onClick={togglePlay}
+        onError={() => {
+          const currentSrc = videoRef.current?.src || '';
+          if (currentSrc && !currentSrc.includes('/api/hls') && !currentSrc.includes('/api/proxy')) {
+            const streamUrl = target.sources?.[currentSourceIndex]?.url || target.url;
+            const localProxyUrl = `http://localhost:3000/api/hls?url=${encodeURIComponent(streamUrl)}&referer=${encodeURIComponent(target.referer || 'https://embed.st/')}`;
+            if (videoRef.current) {
+              videoRef.current.src = localProxyUrl;
+              videoRef.current.load();
+              videoRef.current.play().catch(() => {});
+            }
+          }
+        }}
         className="w-full h-full object-contain cursor-pointer"
-      />
+      >
+        {subtitles.map((sub, i) => (
+          <track
+            key={i}
+            kind="subtitles"
+            src={sub.file}
+            srcLang={sub.lang}
+            label={sub.label}
+            default={selectedSubtitle === sub.lang}
+          />
+        ))}
+      </video>
 
       {/* Buffering Spinner */}
       {isBuffering && (
