@@ -28,6 +28,64 @@ interface Props {
   onPrevEpisode?: () => void;
 }
 
+interface SubtitleCue {
+  start: number;
+  end: number;
+  text: string;
+}
+
+function parseSubtitles(rawText: string): SubtitleCue[] {
+  if (!rawText) return [];
+  const cues: SubtitleCue[] = [];
+  const normalized = rawText
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+
+  const lines = normalized.split('\n');
+  let i = 0;
+
+  const parseTime = (timeStr: string): number => {
+    if (!timeStr) return 0;
+    const cleanStr = timeStr.trim().replace(',', '.');
+    const parts = cleanStr.split(':');
+    if (parts.length === 3) {
+      const [h, m, s] = parts;
+      return (parseFloat(h) || 0) * 3600 + (parseFloat(m) || 0) * 60 + (parseFloat(s) || 0);
+    } else if (parts.length === 2) {
+      const [m, s] = parts;
+      return (parseFloat(m) || 0) * 60 + (parseFloat(s) || 0);
+    }
+    return 0;
+  };
+
+  while (i < lines.length) {
+    const line = lines[i].trim();
+    if (line.includes('-->')) {
+      const parts = line.split('-->');
+      const startStr = parts[0]?.trim().split(/\s+/)[0] || '';
+      const endStr = parts[1]?.trim().split(/\s+/)[0] || '';
+      const start = parseTime(startStr);
+      const end = parseTime(endStr);
+      i++;
+      const textLines: string[] = [];
+      while (i < lines.length && lines[i].trim() !== '') {
+        const cleanText = lines[i]
+          .replace(/<[^>]+>/g, '') // remove HTML tags like <i>, <b>, <font>
+          .replace(/\{[^}]+\}/g, '') // remove ASS/SSA style tags
+          .trim();
+        if (cleanText) textLines.push(cleanText);
+        i++;
+      }
+      if (textLines.length > 0 && end > start) {
+        cues.push({ start, end, text: textLines.join('\n') });
+      }
+    } else {
+      i++;
+    }
+  }
+  return cues;
+}
+
 export const VideoPlayer: React.FC<Props> = ({
   target,
   onClose,
@@ -56,12 +114,16 @@ export const VideoPlayer: React.FC<Props> = ({
 
   // Subtitles & Sources
   const [subtitles, setSubtitles] = useState<SubtitleTrack[]>([]);
-  const [selectedSubtitle, setSelectedSubtitle] = useState<string>('off');
+  const [selectedSubIndex, setSelectedSubIndex] = useState<number | 'off'>('off');
+  const [currentSubtitleText, setCurrentSubtitleText] = useState<string>('');
+  const activeCuesRef = useRef<SubtitleCue[]>([]);
+  const currentSubTextRef = useRef<string>('');
   const [currentSourceIndex, setCurrentSourceIndex] = useState(0);
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
 
   const hideControlsTimeout = useRef<NodeJS.Timeout | null>(null);
 
+  // Initialize and filter subtitles from target
   useEffect(() => {
     if (!target) return;
 
@@ -72,14 +134,66 @@ export const VideoPlayer: React.FC<Props> = ({
     const cleanedSubs = [...indoSubs, ...otherSubs];
     setSubtitles(cleanedSubs);
 
-    const defaultSub = cleanedSubs.find(
+    const defaultIndex = cleanedSubs.findIndex(
       s => s.lang === storage.getDefaultSubtitleLang() || s.isIndonesian
     );
-    if (defaultSub) {
-      setSelectedSubtitle(defaultSub.lang);
+    if (defaultIndex !== -1) {
+      setSelectedSubIndex(defaultIndex);
     } else {
-      setSelectedSubtitle('off');
+      setSelectedSubIndex('off');
     }
+  }, [target]);
+
+  // Fetch & Parse selected subtitle track
+  useEffect(() => {
+    if (selectedSubIndex === 'off' || !subtitles[selectedSubIndex]) {
+      activeCuesRef.current = [];
+      currentSubTextRef.current = '';
+      setCurrentSubtitleText('');
+      return;
+    }
+
+    const sub = subtitles[selectedSubIndex];
+    let isCancelled = false;
+
+    const fetchSubtitleTrack = async () => {
+      try {
+        let fileUrl = sub.file;
+        if (fileUrl.startsWith('/')) {
+          fileUrl = `http://localhost:3000${fileUrl}`;
+        }
+        let res = await fetch(fileUrl).catch(() => null);
+        if (!res || !res.ok) {
+          // Retry via local proxy relay
+          res = await fetch(`http://localhost:3000/api/hls?url=${encodeURIComponent(fileUrl)}`).catch(() => null);
+        }
+        if (res && res.ok && !isCancelled) {
+          const text = await res.text();
+          const parsed = parseSubtitles(text);
+          activeCuesRef.current = parsed;
+          // Re-sync instantly with current time
+          if (videoRef.current) {
+            const cur = videoRef.current.currentTime;
+            const match = parsed.find(c => cur >= c.start && cur <= c.end);
+            const initialText = match ? match.text : '';
+            currentSubTextRef.current = initialText;
+            setCurrentSubtitleText(initialText);
+          }
+        }
+      } catch (err) {
+        console.warn('[Subtitles] Failed to load subtitle track:', err);
+      }
+    };
+
+    fetchSubtitleTrack();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [selectedSubIndex, subtitles]);
+
+  useEffect(() => {
+    if (!target) return;
 
     const video = videoRef.current;
     if (!video) return;
@@ -311,7 +425,23 @@ export const VideoPlayer: React.FC<Props> = ({
         onPlaying={() => setIsBuffering(false)}
         onTimeUpdate={() => {
           if (!videoRef.current) return;
-          setCurrentTime(videoRef.current.currentTime);
+          const cur = videoRef.current.currentTime;
+          setCurrentTime(cur);
+
+          // Real-time Subtitle Cue Synchronization
+          const cues = activeCuesRef.current;
+          if (cues.length > 0) {
+            const match = cues.find(c => cur >= c.start && cur <= c.end);
+            const text = match ? match.text : '';
+            if (text !== currentSubTextRef.current) {
+              currentSubTextRef.current = text;
+              setCurrentSubtitleText(text);
+            }
+          } else if (currentSubTextRef.current !== '') {
+            currentSubTextRef.current = '';
+            setCurrentSubtitleText('');
+          }
+
           if (videoRef.current.buffered.length > 0) {
             setBuffered(
               videoRef.current.buffered.end(videoRef.current.buffered.length - 1)
@@ -356,18 +486,20 @@ export const VideoPlayer: React.FC<Props> = ({
           }
         }}
         className="w-full h-full object-contain cursor-pointer"
-      >
-        {subtitles.map((sub, i) => (
-          <track
-            key={i}
-            kind="subtitles"
-            src={sub.file}
-            srcLang={sub.lang}
-            label={sub.label}
-            default={selectedSubtitle === sub.lang}
-          />
-        ))}
-      </video>
+      />
+
+      {/* Cinema Subtitles Overlay */}
+      {currentSubtitleText && (
+        <div
+          className={`absolute left-4 right-4 md:left-24 md:right-24 flex justify-center pointer-events-none z-30 transition-all duration-200 ${
+            showControls ? 'bottom-28' : 'bottom-8'
+          }`}
+        >
+          <span className="bg-black/85 backdrop-blur-md px-5 py-2 rounded-xl border border-white/10 shadow-[0_4px_30px_rgba(0,0,0,0.95)] text-[#ffe866] font-semibold text-center text-sm md:text-lg leading-relaxed whitespace-pre-line drop-shadow-[0_2px_4px_rgba(0,0,0,1)] tracking-wide select-none">
+            {currentSubtitleText}
+          </span>
+        </div>
+      )}
 
       {/* Buffering Spinner */}
       {isBuffering && (
@@ -577,7 +709,7 @@ export const VideoPlayer: React.FC<Props> = ({
               <button
                 onClick={() => setShowSubtitleMenu(!showSubtitleMenu)}
                 className={`p-2 rounded-xl transition-all ${
-                  selectedSubtitle !== 'off'
+                  selectedSubIndex !== 'off'
                     ? 'text-primary bg-primary/20'
                     : 'text-white/80 hover:text-white hover:bg-white/10'
                 }`}
@@ -594,11 +726,11 @@ export const VideoPlayer: React.FC<Props> = ({
                   </div>
                   <button
                     onClick={() => {
-                      setSelectedSubtitle('off');
+                      setSelectedSubIndex('off');
                       setShowSubtitleMenu(false);
                     }}
                     className={`w-full text-left px-3 py-1.5 rounded-xl text-xs font-semibold ${
-                      selectedSubtitle === 'off' ? 'bg-primary text-black font-bold' : 'text-[#8ea499] hover:bg-white/10'
+                      selectedSubIndex === 'off' ? 'bg-primary text-black font-bold' : 'text-[#8ea499] hover:bg-white/10'
                     }`}
                   >
                     Off
@@ -607,11 +739,11 @@ export const VideoPlayer: React.FC<Props> = ({
                     <button
                       key={i}
                       onClick={() => {
-                        setSelectedSubtitle(sub.lang);
+                        setSelectedSubIndex(i);
                         setShowSubtitleMenu(false);
                       }}
                       className={`w-full text-left px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                        selectedSubtitle === sub.lang
+                        selectedSubIndex === i
                           ? 'bg-primary text-black font-bold shadow-md shadow-primary/20'
                           : 'text-[#8ea499] hover:bg-white/10 hover:text-white'
                       }`}
