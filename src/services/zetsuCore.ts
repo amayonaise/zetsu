@@ -1,6 +1,7 @@
 import { SportsMatch, StreamSource, SubtitleTrack } from '../types/index.ts';
 import { storage } from './storage.ts';
 import { MOCK_SPORTS_MATCHES } from './mockData.ts';
+import { builtInResolver } from './builtInResolver.ts';
 
 async function fetchWithWarmup(url: string, init?: RequestInit, maxRetries = 4): Promise<Response> {
   let lastError: any;
@@ -133,13 +134,8 @@ export const zetsuCore = {
         title: data.title,
       };
     } catch (err: any) {
-      console.warn('Backend unavailable, falling back:', err);
-      return {
-        success: false,
-        error: 'Backend server at http://localhost:3000 is not responding. Please start Zetsu Core.',
-        sources: [],
-        subtitles: [],
-      };
+      console.warn('Backend unavailable, activating built-in client movie resolver:', err);
+      return await builtInResolver.resolveMovieStreams(tmdbId);
     }
   },
 
@@ -170,13 +166,8 @@ export const zetsuCore = {
         title: data.title,
       };
     } catch (err: any) {
-      console.warn('Backend unavailable, falling back:', err);
-      return {
-        success: false,
-        error: 'Backend server at http://localhost:3000 is not responding. Please start Zetsu Core.',
-        sources: [],
-        subtitles: [],
-      };
+      console.warn('Backend unavailable, activating built-in client TV resolver:', err);
+      return await builtInResolver.resolveTvStreams(tmdbId, season, episode);
     }
   },
 };

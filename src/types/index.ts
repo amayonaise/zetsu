@@ -8,6 +8,12 @@ export type NavigationTab =
   | 'history' 
   | 'settings';
 
+export interface CastMember {
+  name: string;
+  character?: string;
+  profilePath?: string;
+}
+
 export interface MediaItem {
   id: number | string;
   tmdbId?: string;
@@ -18,9 +24,18 @@ export interface MediaItem {
   mediaType: 'movie' | 'tv';
   releaseDate?: string;
   voteAverage?: number;
+  voteCount?: number;
   genres?: string[];
   duration?: string;
   seasonsCount?: number;
+  tagline?: string;
+  status?: string;
+  director?: string;
+  cast?: CastMember[];
+  productionCompanies?: string[];
+  budget?: string;
+  revenue?: string;
+  originalLanguage?: string;
 }
 
 export interface TvSeason {
@@ -104,4 +119,8 @@ export interface PlaybackTarget {
   season?: number;
   episode?: number;
   backdrop?: string;
+  poster?: string;
+  overview?: string;
+  genres?: string[];
+  isResolving?: boolean;
 }

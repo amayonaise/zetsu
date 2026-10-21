@@ -47,9 +47,9 @@ export const SettingsView: React.FC = () => {
     setIsTestingBackend(false);
 
     if (online) {
-      setBackendStatus('Connected to Zetsu Core local server successfully!');
+      setBackendStatus('Connected to Zetsu Core successfully!');
     } else {
-      setBackendStatus('Could not reach backend. Ensure `npm start` is running in zetsu-core.');
+      setBackendStatus('Could not reach backend. Check the API URL and your connection.');
     }
   };
 
@@ -148,10 +148,11 @@ export const SettingsView: React.FC = () => {
       <section className="bg-[#0e1411] border border-[#1b2721] rounded-2xl p-6 space-y-4">
         <div>
           <h3 className="text-sm font-bold text-white flex items-center gap-2">
-            <Server className="w-4 h-4 text-primary" /> Zetsu Core Local Server URL
+            <Server className="w-4 h-4 text-primary" /> Zetsu Resolver API URL
           </h3>
           <p className="text-xs text-[#7e9489] mt-0.5">
-            Default endpoint for Live Sports scraper and multi-provider movie streams.
+            Backend resolver for Live Sports, Movies & Series stream extraction.
+            Hosted on the Zetsu VPS.
           </p>
         </div>
 
@@ -160,7 +161,7 @@ export const SettingsView: React.FC = () => {
             type="text"
             value={backendUrl}
             onChange={(e) => setBackendUrl(e.target.value)}
-            placeholder="http://localhost:3000"
+            placeholder="https://junction-distributed-raymond-illustrated.trycloudflare.com"
             className="flex-1 px-3.5 py-2.5 bg-[#070a08] border border-[#23332c] focus:border-primary rounded-xl text-xs font-mono text-white placeholder-[#51675c] focus:outline-none"
           />
           <button

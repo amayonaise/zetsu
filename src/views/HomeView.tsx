@@ -52,85 +52,83 @@ export const HomeView: React.FC<Props> = ({
     setIsHeroInList(newState);
   };
 
-  const handlePlayHero = async () => {
+  const handlePlayHero = () => {
     if (!heroItem) return;
-    const result = await zetsuCore.resolveMovieStreams(String(heroItem.id));
-    if (result.sources && result.sources.length > 0) {
-      onStartPlayback({
-        title: heroItem.title,
-        mediaType: 'movie',
-        url: result.sources[0].url,
-        sources: result.sources,
-        subtitles: result.subtitles,
-        tmdbId: String(heroItem.id),
-        backdrop: heroItem.backdropPath,
-      });
-    } else {
-      onSelectMedia(heroItem);
-    }
+    onStartPlayback({
+      title: heroItem.title,
+      mediaType: 'movie',
+      url: '',
+      sources: [],
+      tmdbId: String(heroItem.id),
+      backdrop: heroItem.backdropPath,
+      poster: heroItem.posterPath,
+      overview: heroItem.overview,
+      genres: heroItem.genres,
+      isResolving: true,
+    });
   };
 
   return (
     <div className="space-y-10 pb-16">
       {/* Featured Hero Banner */}
       {heroItem && (
-        <div className="relative h-[480px] md:h-[540px] w-full rounded-3xl overflow-hidden border border-[#1b2621] shadow-2xl">
+        <div className="relative h-[360px] sm:h-[460px] md:h-[540px] w-full rounded-2xl md:rounded-3xl overflow-hidden border border-[#1b2621] shadow-2xl">
           <img
             src={heroItem.backdropPath}
             alt={heroItem.title}
             className="w-full h-full object-cover object-center filter brightness-90"
           />
           {/* Cinema Gradients */}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#070a08] via-[#070a08]/40 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#070a08] via-[#070a08]/50 to-transparent" />
           <div className="absolute inset-0 bg-gradient-to-r from-[#070a08] via-[#070a08]/60 to-transparent" />
 
           {/* Hero Content */}
-          <div className="absolute bottom-10 left-10 max-w-2xl text-left space-y-3 z-10">
-            <div className="flex items-center gap-2">
+          <div className="absolute bottom-5 left-4 right-4 sm:bottom-10 sm:left-10 max-w-2xl text-left space-y-2 sm:space-y-3 z-10">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
               <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-primary text-black font-mono">
                 Featured Spotlight
               </span>
               {heroItem.voteAverage && (
-                <span className="flex items-center gap-1 text-xs font-semibold text-amber-400 bg-black/40 px-2 py-0.5 rounded border border-amber-500/30">
-                  <Star className="w-3.5 h-3.5 fill-current" /> {heroItem.voteAverage}
+                <span className="flex items-center gap-1 text-[11px] sm:text-xs font-semibold text-amber-400 bg-black/40 px-2 py-0.5 rounded border border-amber-500/30">
+                  <Star className="w-3 h-3 fill-current" /> {heroItem.voteAverage}
                 </span>
               )}
               {heroItem.releaseDate && (
-                <span className="text-xs text-[#9bb0a5] bg-black/40 px-2 py-0.5 rounded">
+                <span className="text-[11px] sm:text-xs text-[#9bb0a5] bg-black/40 px-2 py-0.5 rounded">
                   {heroItem.releaseDate.slice(0, 4)}
                 </span>
               )}
               {heroItem.duration && (
-                <span className="text-xs text-[#9bb0a5] bg-black/40 px-2 py-0.5 rounded">
+                <span className="text-[11px] sm:text-xs text-[#9bb0a5] bg-black/40 px-2 py-0.5 rounded">
                   {heroItem.duration}
                 </span>
               )}
             </div>
 
-            <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight drop-shadow-md">
+            <h1 className="text-2xl sm:text-3xl md:text-5xl font-black text-white tracking-tight drop-shadow-md">
               {heroItem.title}
             </h1>
 
-            <p className="text-xs md:text-sm text-[#cbd9d1] line-clamp-3 leading-relaxed max-w-xl">
+            <p className="text-xs sm:text-sm text-[#cbd9d1] line-clamp-2 sm:line-clamp-3 leading-relaxed max-w-xl">
               {heroItem.overview}
             </p>
 
-            <div className="flex items-center gap-3 pt-3">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 pt-2">
               <button
                 onClick={handlePlayHero}
-                className="flex items-center gap-2 px-6 py-3 bg-primary hover:bg-primary-hover text-black font-extrabold text-xs uppercase tracking-wider rounded-xl transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)]"
+                className="flex items-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 bg-primary hover:bg-primary-hover text-black font-extrabold text-xs uppercase tracking-wider rounded-xl transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] active:scale-95"
               >
                 <Play className="w-4 h-4 fill-current" /> Play Now
               </button>
               <button
                 onClick={() => onSelectMedia(heroItem)}
-                className="flex items-center gap-2 px-5 py-3 bg-white/10 hover:bg-white/20 text-white font-semibold text-xs rounded-xl backdrop-blur-md border border-white/10 transition-all"
+                className="flex items-center gap-2 px-4 sm:px-5 py-2.5 sm:py-3 bg-white/10 hover:bg-white/20 text-white font-semibold text-xs rounded-xl backdrop-blur-md border border-white/10 transition-all active:scale-95"
               >
-                <Info className="w-4 h-4" /> More Details
+                <Info className="w-4 h-4" /> Details
               </button>
               <button
                 onClick={handleToggleHeroList}
-                className="p-3 bg-[#131b17] hover:bg-[#1a2520] text-white rounded-xl border border-[#202e27] transition-all"
+                className="p-2.5 sm:p-3 bg-[#131b17] hover:bg-[#1a2520] text-white rounded-xl border border-[#202e27] transition-all active:scale-95"
                 title="Add to My List"
               >
                 {isHeroInList ? (
@@ -154,38 +152,18 @@ export const HomeView: React.FC<Props> = ({
             {continueWatching.slice(0, 4).map((item) => (
               <div
                 key={item.id}
-                onClick={async () => {
-                  if (item.mediaType === 'movie') {
-                    const res = await zetsuCore.resolveMovieStreams(item.tmdbId);
-                    if (res.sources && res.sources.length > 0) {
-                      onStartPlayback({
-                        title: item.title,
-                        mediaType: 'movie',
-                        url: res.sources[0].url,
-                        sources: res.sources,
-                        subtitles: res.subtitles,
-                        tmdbId: item.tmdbId,
-                      });
-                    }
-                  } else {
-                    const res = await zetsuCore.resolveTvStreams(
-                      item.tmdbId,
-                      item.season || 1,
-                      item.episode || 1
-                    );
-                    if (res.sources && res.sources.length > 0) {
-                      onStartPlayback({
-                        title: item.title,
-                        mediaType: 'tv',
-                        url: res.sources[0].url,
-                        sources: res.sources,
-                        subtitles: res.subtitles,
-                        tmdbId: item.tmdbId,
-                        season: item.season,
-                        episode: item.episode,
-                      });
-                    }
-                  }
+                onClick={() => {
+                  onStartPlayback({
+                    title: item.title,
+                    mediaType: item.mediaType,
+                    url: '',
+                    sources: [],
+                    tmdbId: item.tmdbId,
+                    season: item.season,
+                    episode: item.episode,
+                    backdrop: item.backdropPath,
+                    isResolving: true,
+                  });
                 }}
                 className="group relative bg-[#0f1512] border border-[#1a2520] hover:border-primary/40 rounded-2xl overflow-hidden cursor-pointer transition-all"
               >

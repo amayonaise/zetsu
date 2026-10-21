@@ -1,0 +1,18 @@
+# Normalize line endings across platforms; binaries must never be converted.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.icns binary
+*.jar binary
+*.apk binary
+*.exe binary
+*.msi binary
+*.woff binary
+*.woff2 binary
+
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf

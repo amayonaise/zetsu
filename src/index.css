@@ -66,3 +66,17 @@ input[type="range"]::-webkit-slider-thumb {
 input[type="range"]::-webkit-slider-thumb:hover {
   transform: scale(1.25);
 }
+
+/* Smart TV Remote D-Pad Focus Ring */
+*:focus-visible,
+button:focus-visible,
+a:focus-visible,
+[tabindex="0"]:focus-visible,
+.tv-focusable:focus-visible {
+  outline: 2px solid #10b981 !important;
+  outline-offset: 3px !important;
+  box-shadow: 0 0 18px rgba(16, 185, 129, 0.5) !important;
+  transform: scale(1.04);
+  transition: transform 0.15s ease, outline 0.15s ease, box-shadow 0.15s ease;
+  z-index: 20;
+}

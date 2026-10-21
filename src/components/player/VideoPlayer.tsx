@@ -21,9 +21,13 @@ import {
   Clock,
   Plus,
   Minus,
+  Sparkles,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
-import { PlaybackTarget, SubtitleTrack } from '../../types/index.ts';
+import { PlaybackTarget, SubtitleTrack, StreamSource } from '../../types/index.ts';
 import { storage } from '../../services/storage.ts';
+import { zetsuCore } from '../../services/zetsuCore.ts';
 
 interface Props {
   target: PlaybackTarget | null;
@@ -100,8 +104,19 @@ export const VideoPlayer: React.FC<Props> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
 
+  // Compute resume time specific to this media item
+  const getInitialResumeTime = (): number => {
+    if (!target || target.isLive || !target.tmdbId) return 0;
+    const progressId = `${target.tmdbId}_${target.season || 0}_${target.episode || 0}`;
+    const saved = storage.getProgress(progressId);
+    if (saved && saved.currentTime > 5 && (saved.progressPercent || 0) < 95) {
+      return saved.currentTime;
+    }
+    return 0;
+  };
+
   const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
+  const [currentTime, setCurrentTime] = useState<number>(() => getInitialResumeTime());
   const [duration, setDuration] = useState(0);
   const [buffered, setBuffered] = useState(0);
   const [volume, setVolume] = useState(1);
@@ -117,6 +132,15 @@ export const VideoPlayer: React.FC<Props> = ({
   const [showSourceMenu, setShowSourceMenu] = useState(false);
 
   // Subtitles & Sources
+  const [activeSources, setActiveSources] = useState<StreamSource[]>(target?.sources || []);
+  const initialResolving = Boolean(
+    target &&
+      (target.isResolving || (!target.url && (!target.sources || target.sources.length === 0)))
+  );
+  const [isResolving, setIsResolving] = useState(initialResolving);
+  const [resolvingStatus, setResolvingStatus] = useState('Mencari server CDN tercepat...');
+  const [resolveError, setResolveError] = useState<string | null>(null);
+
   const [subtitles, setSubtitles] = useState<SubtitleTrack[]>([]);
   const [selectedSubIndex, setSelectedSubIndex] = useState<number | 'off'>('off');
   const [currentSubtitleText, setCurrentSubtitleText] = useState<string>('');
@@ -124,6 +148,62 @@ export const VideoPlayer: React.FC<Props> = ({
   const currentSubTextRef = useRef<string>('');
   const [currentSourceIndex, setCurrentSourceIndex] = useState(0);
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
+
+  // In-Player Stream Resolution
+  const startStreamResolution = async () => {
+    if (!target || !target.tmdbId) {
+      setIsResolving(false);
+      return;
+    }
+    setIsResolving(true);
+    setResolveError(null);
+    setResolvingStatus('Menghubungkan ke 10+ server CDN...');
+
+    try {
+      let result: any;
+      if (target.mediaType === 'tv') {
+        setResolvingStatus(`Mencari stream Season ${target.season || 1} Episode ${target.episode || 1}...`);
+        result = await zetsuCore.resolveTvStreams(
+          target.tmdbId,
+          target.season || 1,
+          target.episode || 1
+        );
+      } else {
+        setResolvingStatus('Mengekstrak stream 4K UHD & 1080p...');
+        result = await zetsuCore.resolveMovieStreams(target.tmdbId);
+      }
+
+      if (result && result.sources && result.sources.length > 0) {
+        setResolvingStatus('Menyiapkan subtitle dan pemutaran...');
+        setActiveSources(result.sources);
+        if (result.subtitles && result.subtitles.length > 0) {
+          const rawSubs: SubtitleTrack[] = result.subtitles;
+          const indoSubs = rawSubs.filter((s) => s.isIndonesian || s.lang === 'id');
+          const otherSubs = rawSubs.filter((s) => !s.isIndonesian && s.lang !== 'id').slice(0, 8);
+          const cleanedSubs = [...indoSubs, ...otherSubs];
+          setSubtitles(cleanedSubs);
+          const defaultIndo = cleanedSubs.findIndex((s) => s.isIndonesian || s.lang === 'id');
+          if (defaultIndo >= 0) setSelectedSubIndex(defaultIndo);
+          else if (cleanedSubs.length > 0) setSelectedSubIndex(0);
+        }
+        setIsResolving(false);
+      } else {
+        setResolveError(
+          result?.error || 'Tidak ada stream aktif yang ditemukan dari upstream server.'
+        );
+        setIsResolving(false);
+      }
+    } catch (err: any) {
+      setResolveError(err.message || 'Gagal menghubungi server resolver.');
+      setIsResolving(false);
+    }
+  };
+
+  useEffect(() => {
+    if (initialResolving) {
+      startStreamResolution();
+    }
+  }, [target]);
 
   // Subtitle Settings & Customization
   const [subTab, setSubTab] = useState<'tracks' | 'sync' | 'style'>('tracks');
@@ -135,10 +215,26 @@ export const VideoPlayer: React.FC<Props> = ({
   const [subSize, setSubSize] = useState<'sm' | 'md' | 'lg' | 'xl'>('md');
   const [subBg, setSubBg] = useState<'box' | 'solid' | 'shadow'>('box');
 
-  // Track playback time to seamlessly continue across source changes
-  const lastTimeRef = useRef<number>(0);
+  // Track playback time to seamlessly continue across source changes for THIS media
+  const lastTimeRef = useRef<number>(getInitialResumeTime());
+  const targetMediaId = target
+    ? `${target.tmdbId || target.title}_${target.season || 0}_${target.episode || 0}`
+    : '';
+  const currentMediaIdRef = useRef<string>(targetMediaId);
 
   const hideControlsTimeout = useRef<NodeJS.Timeout | null>(null);
+
+  // When media changes, reset time & sources to this media's own state
+  useEffect(() => {
+    if (!target) return;
+    if (currentMediaIdRef.current !== targetMediaId) {
+      currentMediaIdRef.current = targetMediaId;
+      setCurrentSourceIndex(0);
+      const resume = getInitialResumeTime();
+      setCurrentTime(resume);
+      lastTimeRef.current = resume;
+    }
+  }, [target, targetMediaId]);
 
   // Initialize and filter subtitles from target, prioritizing built-in provider subtitles
   useEffect(() => {
@@ -189,14 +285,15 @@ export const VideoPlayer: React.FC<Props> = ({
 
     const fetchSubtitleTrack = async () => {
       try {
+        const backend = storage.getBackendUrl();
         let fileUrl = sub.file;
         if (fileUrl.startsWith('/')) {
-          fileUrl = `http://localhost:3000${fileUrl}`;
+          fileUrl = `${backend}${fileUrl}`;
         }
         let res = await fetch(fileUrl).catch(() => null);
         if (!res || !res.ok) {
-          // Retry via local proxy relay
-          res = await fetch(`http://localhost:3000/api/hls?url=${encodeURIComponent(fileUrl)}`).catch(() => null);
+          // Retry via backend proxy relay
+          res = await fetch(`${backend}/api/hls?url=${encodeURIComponent(fileUrl)}`).catch(() => null);
         }
         if (res && res.ok && !isCancelled) {
           const text = await res.text();
@@ -224,12 +321,15 @@ export const VideoPlayer: React.FC<Props> = ({
   }, [selectedSubIndex, subtitles]);
 
   useEffect(() => {
-    if (!target) return;
+    if (!target || isResolving || resolveError) return;
 
     const video = videoRef.current;
     if (!video) return;
 
-    const streamUrl = target.sources?.[currentSourceIndex]?.url || target.url;
+    const availableSources = activeSources.length > 0 ? activeSources : (target.sources || []);
+    const streamUrl = availableSources[currentSourceIndex]?.url || target.url;
+    if (!streamUrl) return;
+
     setIsBuffering(true);
 
     if (hlsRef.current) {
@@ -239,10 +339,10 @@ export const VideoPlayer: React.FC<Props> = ({
 
     const triggerAutoFallback = (reason: string) => {
       console.warn(`[Player] Fallback triggered (${reason}). Current index:`, currentSourceIndex);
-      const totalSources = target.sources?.length || 0;
+      const totalSources = availableSources.length || 0;
       if (currentSourceIndex + 1 < totalSources) {
         const nextIdx = currentSourceIndex + 1;
-        const nextServer = target.sources?.[nextIdx]?.label || `Server ${nextIdx + 1}`;
+        const nextServer = availableSources[nextIdx]?.label || `Server ${nextIdx + 1}`;
         setFallbackNotice(`Server bermasalah. Mengalihkan ke ${nextServer}...`);
         setTimeout(() => setFallbackNotice(null), 3800);
         setCurrentSourceIndex(nextIdx);
@@ -278,7 +378,7 @@ export const VideoPlayer: React.FC<Props> = ({
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (data.fatal) {
           if (!streamUrl.includes('/api/hls') && !streamUrl.includes('/api/proxy')) {
-            const localProxyUrl = `http://localhost:3000/api/hls?url=${encodeURIComponent(streamUrl)}&referer=${encodeURIComponent(target.referer || 'https://embed.st/')}`;
+            const localProxyUrl = `${storage.getBackendUrl()}/api/hls?url=${encodeURIComponent(streamUrl)}&referer=${encodeURIComponent(target.referer || 'https://embed.st/')}`;
             hls.loadSource(localProxyUrl);
             hls.attachMedia(video);
             return;
@@ -320,7 +420,7 @@ export const VideoPlayer: React.FC<Props> = ({
         hlsRef.current = null;
       }
     };
-  }, [target, currentSourceIndex]);
+  }, [target, currentSourceIndex, activeSources, isResolving, resolveError]);
 
   // Handle Controls Timeout
   const resetHideTimer = () => {
@@ -423,14 +523,32 @@ export const VideoPlayer: React.FC<Props> = ({
     resetHideTimer();
   };
 
+  // Immersive Android Fullscreen on Mount
+  useEffect(() => {
+    (window as any).AndroidBridge?.setFullscreen?.(true);
+    setIsFullscreen(true);
+
+    return () => {
+      (window as any).AndroidBridge?.setFullscreen?.(false);
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      }
+    };
+  }, []);
+
   const toggleFullscreen = () => {
     if (!containerRef.current) return;
-    if (!document.fullscreenElement) {
+    const isNowFs = !isFullscreen;
+    setIsFullscreen(isNowFs);
+
+    if ((window as any).AndroidBridge?.setFullscreen) {
+      (window as any).AndroidBridge.setFullscreen(isNowFs);
+    }
+
+    if (!document.fullscreenElement && isNowFs) {
       containerRef.current.requestFullscreen().catch(() => {});
-      setIsFullscreen(true);
-    } else {
+    } else if (document.fullscreenElement && !isNowFs) {
       document.exitFullscreen().catch(() => {});
-      setIsFullscreen(false);
     }
   };
 
@@ -480,6 +598,8 @@ export const VideoPlayer: React.FC<Props> = ({
     }
   };
 
+  const availableSources = activeSources.length > 0 ? activeSources : (target?.sources || []);
+
   return (
     <div
       ref={containerRef}
@@ -487,6 +607,104 @@ export const VideoPlayer: React.FC<Props> = ({
       onClick={resetHideTimer}
       className="fixed inset-0 z-50 bg-black flex items-center justify-center overflow-hidden font-sans select-none"
     >
+      {/* 1. Cinematic Glassmorphic Stream Resolving Overlay */}
+      {isResolving && target && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center p-4 overflow-hidden animate-fadeIn">
+          {/* Full-bleed background movie backdrop with cinematic zoom & blur */}
+          {target.backdrop && (
+            <div className="absolute inset-0 z-0">
+              <img
+                src={target.backdrop}
+                alt={target.title}
+                className="w-full h-full object-cover filter brightness-[0.3] blur-sm scale-105 animate-pulse"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-transparent to-black/80" />
+            </div>
+          )}
+
+          {/* Center Glass Card */}
+          <div className="relative z-10 w-full max-w-lg bg-[#070e0a]/80 backdrop-blur-3xl border border-white/10 rounded-3xl p-6 sm:p-8 shadow-[0_20px_50px_rgba(0,0,0,0.95)] flex flex-col items-center text-center gap-4 animate-fadeIn">
+            {/* Animated Glowing Radar Pulse */}
+            <div className="relative w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center">
+              <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping" />
+              <div className="absolute inset-2 rounded-full bg-primary/30 animate-pulse" />
+              <div className="relative w-12 h-12 rounded-full bg-[#0c1812] border border-primary/50 flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.5)]">
+                <Sparkles className="w-6 h-6 text-primary animate-spin" style={{ animationDuration: '4s' }} />
+              </div>
+            </div>
+
+            <div>
+              <span className="text-[10px] font-mono font-extrabold uppercase tracking-widest text-primary px-3 py-1 rounded-full bg-primary/10 border border-primary/30 inline-block mb-2 shadow-sm">
+                4K & 1080p Stream Engine
+              </span>
+              <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight leading-snug">
+                {target.title}
+              </h2>
+              {target.season && target.episode && (
+                <p className="text-xs text-[#8ea499] mt-1 font-mono">
+                  Season {target.season} · Episode {target.episode}
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 text-xs text-[#9eb5a8] font-medium">
+              <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+              <span>{resolvingStatus}</span>
+            </div>
+
+            {/* Glowing Shimmer Bar */}
+            <div className="w-48 h-1.5 bg-black/60 rounded-full overflow-hidden border border-white/10">
+              <div className="h-full bg-gradient-to-r from-primary via-emerald-300 to-primary w-full animate-pulse" />
+            </div>
+
+            {/* Cancel Button */}
+            <button
+              onClick={onClose}
+              className="mt-2 text-xs font-semibold text-[#8ea499] hover:text-white px-4 py-2 rounded-xl hover:bg-white/10 transition-colors"
+            >
+              Batalkan (Kembali)
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Stream Resolution Error Overlay */}
+      {resolveError && target && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center p-4 animate-fadeIn">
+          {target.backdrop && (
+            <div className="absolute inset-0 z-0">
+              <img
+                src={target.backdrop}
+                alt={target.title}
+                className="w-full h-full object-cover filter brightness-[0.25] blur-md"
+              />
+              <div className="absolute inset-0 bg-black/70" />
+            </div>
+          )}
+          <div className="relative z-10 w-full max-w-md bg-[#070e0a]/90 backdrop-blur-3xl border border-red-500/30 rounded-3xl p-6 shadow-2xl flex flex-col items-center text-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-red-950/60 border border-red-500/40 flex items-center justify-center text-red-400">
+              <AlertCircle className="w-6 h-6" />
+            </div>
+            <h3 className="text-lg font-bold text-white">Stream Tidak Ditemukan</h3>
+            <p className="text-xs text-[#9eb5a8] leading-relaxed">{resolveError}</p>
+            <div className="flex items-center gap-2 mt-2 w-full">
+              <button
+                onClick={startStreamResolution}
+                className="flex-1 py-2.5 rounded-xl bg-primary hover:bg-primary-hover text-black font-bold text-xs uppercase tracking-wider transition-all shadow-md active:scale-95 flex items-center justify-center gap-1.5"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> Coba Lagi
+              </button>
+              <button
+                onClick={onClose}
+                className="flex-1 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-xs transition-all active:scale-95"
+              >
+                Kembali
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <video
         ref={videoRef}
         playsInline
@@ -549,8 +767,8 @@ export const VideoPlayer: React.FC<Props> = ({
         onError={() => {
           const currentSrc = videoRef.current?.src || '';
           if (currentSrc && !currentSrc.includes('/api/hls') && !currentSrc.includes('/api/proxy')) {
-            const streamUrl = target.sources?.[currentSourceIndex]?.url || target.url;
-            const localProxyUrl = `http://localhost:3000/api/hls?url=${encodeURIComponent(streamUrl)}&referer=${encodeURIComponent(target.referer || 'https://embed.st/')}`;
+            const streamUrl = availableSources[currentSourceIndex]?.url || target?.url;
+            const localProxyUrl = `${storage.getBackendUrl()}/api/hls?url=${encodeURIComponent(streamUrl || '')}&referer=${encodeURIComponent(target?.referer || 'https://embed.st/')}`;
             if (videoRef.current) {
               videoRef.current.src = localProxyUrl;
               videoRef.current.load();
@@ -629,39 +847,42 @@ export const VideoPlayer: React.FC<Props> = ({
 
         {/* Top Right Controls */}
         <div className="flex items-center gap-2">
-          {target.sources && target.sources.length > 1 && (
+          {availableSources.length > 1 && (
             <div className="relative">
               <button
                 onClick={() => setShowSourceMenu(!showSourceMenu)}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold text-white backdrop-blur-md border border-white/10"
               >
                 <Layers className="w-3.5 h-3.5 text-primary" />
-                <span>Source: {target.sources[currentSourceIndex]?.label || 'Default'}</span>
+                <span>Source: {availableSources[currentSourceIndex]?.label || 'Default'}</span>
               </button>
               {showSourceMenu && (
-                <div className="absolute right-0 top-11 w-64 max-h-72 overflow-y-auto bg-[#0c120f]/95 backdrop-blur-xl border border-[#1e2a25] rounded-2xl shadow-2xl p-2 space-y-1 z-50">
-                  <div className="sticky top-0 bg-[#0c120f] pb-1.5 border-b border-[#18231e] mb-1">
-                    <span className="block text-[10px] uppercase font-mono font-bold text-[#687c72] px-2 pt-0.5">
-                      Available Servers ({target.sources.length})
-                    </span>
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowSourceMenu(false)} />
+                  <div className="absolute right-0 top-11 w-64 max-h-[calc(100vh-4rem)] overflow-y-auto bg-[#0c120f]/95 backdrop-blur-xl border border-[#1e2a25] rounded-2xl shadow-2xl p-2 space-y-1 z-50">
+                    <div className="sticky top-0 bg-[#0c120f] pb-1.5 border-b border-[#18231e] mb-1">
+                      <span className="block text-[10px] uppercase font-mono font-bold text-[#687c72] px-2 pt-0.5">
+                        Available Servers ({availableSources.length})
+                      </span>
+                    </div>
+                    {availableSources.map((src, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          setCurrentSourceIndex(idx);
+                          setShowSourceMenu(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                          currentSourceIndex === idx
+                            ? 'bg-primary text-black font-bold shadow-md shadow-primary/20'
+                            : 'text-[#9cb0a5] hover:bg-white/10 hover:text-white'
+                        }`}
+                      >
+                        {src.label}
+                      </button>
+                    ))}
                   </div>
-                  {target.sources.map((src, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => {
-                        setCurrentSourceIndex(idx);
-                        setShowSourceMenu(false);
-                      }}
-                      className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-                        currentSourceIndex === idx
-                          ? 'bg-primary text-black font-bold shadow-md shadow-primary/20'
-                          : 'text-[#9cb0a5] hover:bg-white/10 hover:text-white'
-                      }`}
-                    >
-                      {src.label}
-                    </button>
-                  ))}
-                </div>
+                </>
               )}
             </div>
           )}
@@ -794,55 +1015,60 @@ export const VideoPlayer: React.FC<Props> = ({
               </button>
 
               {showSubtitleMenu && (
-                <div className="absolute right-0 bottom-12 w-80 max-h-[380px] bg-[#0c120f]/95 backdrop-blur-2xl border border-[#1e2a25] rounded-2xl shadow-2xl p-3 z-50 flex flex-col gap-3">
-                  {/* Tabs Header */}
-                  <div className="flex items-center justify-between border-b border-[#18231e] pb-2">
-                    <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl">
+                <>
+                  <div
+                    className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[2px]"
+                    onClick={() => setShowSubtitleMenu(false)}
+                  />
+                  <div className="fixed top-3 bottom-3 right-3 sm:right-6 w-80 sm:w-96 max-w-[calc(100vw-1.5rem)] bg-[#0c120f]/95 backdrop-blur-2xl border border-[#1e2a25] rounded-2xl shadow-2xl p-3 z-50 flex flex-col gap-3 animate-fadeIn">
+                    {/* Tabs Header */}
+                    <div className="flex items-center justify-between border-b border-[#18231e] pb-2 flex-shrink-0">
+                      <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl">
+                        <button
+                          onClick={() => setSubTab('tracks')}
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                            subTab === 'tracks'
+                              ? 'bg-primary text-black font-bold shadow-sm'
+                              : 'text-[#8ea499] hover:text-white'
+                          }`}
+                        >
+                          <Subtitles className="w-3.5 h-3.5" />
+                          <span>Bahasa</span>
+                        </button>
+                        <button
+                          onClick={() => setSubTab('sync')}
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                            subTab === 'sync'
+                              ? 'bg-primary text-black font-bold shadow-sm'
+                              : 'text-[#8ea499] hover:text-white'
+                          }`}
+                        >
+                          <Clock className="w-3.5 h-3.5" />
+                          <span>Sync</span>
+                        </button>
+                        <button
+                          onClick={() => setSubTab('style')}
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                            subTab === 'style'
+                              ? 'bg-primary text-black font-bold shadow-sm'
+                              : 'text-[#8ea499] hover:text-white'
+                          }`}
+                        >
+                          <Palette className="w-3.5 h-3.5" />
+                          <span>Gaya</span>
+                        </button>
+                      </div>
+
                       <button
-                        onClick={() => setSubTab('tracks')}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
-                          subTab === 'tracks'
-                            ? 'bg-primary text-black font-bold shadow-sm'
-                            : 'text-[#8ea499] hover:text-white'
-                        }`}
+                        onClick={() => setShowSubtitleMenu(false)}
+                        className="p-1.5 text-[#8ea499] hover:text-white rounded-lg hover:bg-white/10 transition-colors"
                       >
-                        <Subtitles className="w-3.5 h-3.5" />
-                        <span>Bahasa</span>
-                      </button>
-                      <button
-                        onClick={() => setSubTab('sync')}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
-                          subTab === 'sync'
-                            ? 'bg-primary text-black font-bold shadow-sm'
-                            : 'text-[#8ea499] hover:text-white'
-                        }`}
-                      >
-                        <Clock className="w-3.5 h-3.5" />
-                        <span>Sync</span>
-                      </button>
-                      <button
-                        onClick={() => setSubTab('style')}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
-                          subTab === 'style'
-                            ? 'bg-primary text-black font-bold shadow-sm'
-                            : 'text-[#8ea499] hover:text-white'
-                        }`}
-                      >
-                        <Palette className="w-3.5 h-3.5" />
-                        <span>Gaya</span>
+                        <X className="w-4 h-4" />
                       </button>
                     </div>
 
-                    <button
-                      onClick={() => setShowSubtitleMenu(false)}
-                      className="p-1 text-[#8ea499] hover:text-white rounded-lg hover:bg-white/10"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  {/* Tab Content */}
-                  <div className="flex-1 overflow-y-auto max-h-[280px] pr-1 space-y-2">
+                    {/* Tab Content */}
+                    <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-2">
                     {/* 1. Tracks Tab */}
                     {subTab === 'tracks' && (
                       <div className="space-y-1">
@@ -1060,20 +1286,23 @@ export const VideoPlayer: React.FC<Props> = ({
                     )}
                   </div>
                 </div>
-              )}
-            </div>
+              </>
+            )}
+          </div>
 
-            {/* Speed */}
-            <div className="relative">
-              <button
-                onClick={() => setShowSpeedMenu(!showSpeedMenu)}
-                className="px-2.5 py-1 text-xs font-mono font-semibold rounded-lg bg-white/10 hover:bg-white/20 text-white transition-all"
-                title="Playback Speed"
-              >
-                {playbackRate}x
-              </button>
-              {showSpeedMenu && (
-                <div className="absolute right-0 bottom-12 w-28 bg-[#0c120f] border border-[#1e2a25] rounded-xl shadow-2xl p-1.5 space-y-1 z-50 font-mono text-xs">
+          {/* Speed */}
+          <div className="relative">
+            <button
+              onClick={() => setShowSpeedMenu(!showSpeedMenu)}
+              className="px-2.5 py-1 text-xs font-mono font-semibold rounded-lg bg-white/10 hover:bg-white/20 text-white transition-all"
+              title="Playback Speed"
+            >
+              {playbackRate}x
+            </button>
+            {showSpeedMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowSpeedMenu(false)} />
+                <div className="absolute right-0 bottom-12 w-28 max-h-[calc(100vh-5rem)] overflow-y-auto bg-[#0c120f] border border-[#1e2a25] rounded-xl shadow-2xl p-1.5 space-y-1 z-50 font-mono text-xs">
                   {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => (
                     <button
                       key={rate}
@@ -1086,8 +1315,9 @@ export const VideoPlayer: React.FC<Props> = ({
                     </button>
                   ))}
                 </div>
-              )}
-            </div>
+              </>
+            )}
+          </div>
 
             {/* Picture in Picture */}
             {document.pictureInPictureEnabled && (

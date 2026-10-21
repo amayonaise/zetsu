@@ -16,38 +16,18 @@ export const HistoryView: React.FC<Props> = ({ onStartPlayback, onBrowseCatalog 
     setItems(storage.getContinueWatching());
   }, []);
 
-  const handleResume = async (item: ContinueWatchingItem) => {
-    if (item.mediaType === 'movie') {
-      const res = await zetsuCore.resolveMovieStreams(item.tmdbId);
-      if (res.sources && res.sources.length > 0) {
-        onStartPlayback({
-          title: item.title,
-          mediaType: 'movie',
-          url: res.sources[0].url,
-          sources: res.sources,
-          subtitles: res.subtitles,
-          tmdbId: item.tmdbId,
-        });
-      }
-    } else {
-      const res = await zetsuCore.resolveTvStreams(
-        item.tmdbId,
-        item.season || 1,
-        item.episode || 1
-      );
-      if (res.sources && res.sources.length > 0) {
-        onStartPlayback({
-          title: item.title,
-          mediaType: 'tv',
-          url: res.sources[0].url,
-          sources: res.sources,
-          subtitles: res.subtitles,
-          tmdbId: item.tmdbId,
-          season: item.season,
-          episode: item.episode,
-        });
-      }
-    }
+  const handleResume = (item: ContinueWatchingItem) => {
+    onStartPlayback({
+      title: item.title,
+      mediaType: item.mediaType,
+      url: '',
+      sources: [],
+      tmdbId: item.tmdbId,
+      season: item.season,
+      episode: item.episode,
+      backdrop: item.backdropPath,
+      isResolving: true,
+    });
   };
 
   const handleRemove = (e: React.MouseEvent, id: string) => {

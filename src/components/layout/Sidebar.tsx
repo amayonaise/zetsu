@@ -41,7 +41,7 @@ export const Sidebar: React.FC<Props> = ({
 
   return (
     <aside
-      className={`h-screen bg-[#070b09] border-r border-[#151e1a] flex flex-col justify-between transition-all duration-300 z-30 select-none ${
+      className={`hidden md:flex h-screen bg-[#070b09] border-r border-[#151e1a] flex-col justify-between transition-all duration-300 z-30 select-none ${
         isCollapsed ? 'w-20' : 'w-64'
       }`}
     >

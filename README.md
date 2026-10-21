@@ -42,9 +42,16 @@
 ### 1. Installation
 
 ```bash
-cd d:\zetsu
 npm install
 ```
+
+Optional — pre-fill the onboarding with a default TMDB key:
+
+```bash
+cp .env.example .env   # then set VITE_DEFAULT_TMDB_KEY
+```
+
+Without it, the app simply asks for a key on first launch.
 
 ### 2. Development Mode
 
@@ -73,18 +80,41 @@ npm run tauri build
 
 ## ⚙️ Backend Integration
 
-Zetsu Desktop connects seamlessly to your local **Zetsu Core** API server (running at `http://localhost:3000` by default):
+Zetsu Desktop is a pure client. The **Zetsu Core** resolver API (scrapers for Live Sports, Movies & TV Shows) is hosted on the VPS and reached over HTTPS — nothing is bundled into the `.exe` and no local server is spawned.
 
-1. Start Zetsu Core in another terminal:
-   ```bash
-   cd d:\zetsu-core
-   npm start
-   ```
-2. Zetsu Desktop will automatically show a green connection indicator in the top bar!
-3. If the backend is not yet started, Zetsu Desktop will automatically display fallback mock feeds so the entire UI remains 100% interactive and functional.
+1. The endpoint defaults to `https://junction-distributed-raymond-illustrated.trycloudflare.com` (see `DEFAULT_BACKEND_URL` in `src/services/storage.ts`).
+2. Override it any time under **Settings → Zetsu Resolver API URL**, then hit **Test Connection**.
+3. If the backend is unreachable, Zetsu Desktop falls back to the built-in client-side resolver and mock feeds so the UI stays interactive.
+
+> **Note:** builds from before the VPS migration may have stored a `http://localhost:3000` override. That value is now stale and is automatically discarded on first launch.
 
 ---
 
 ## 🛡️ License
 
-MIT License © 2026 Zetsu Core Contributors.
+MIT License © 2026 Zetsu Core Contributors. See [LICENSE](./LICENSE).
+
+---
+
+## 📦 Releases
+
+Installers and the Android APK are published as [GitHub Releases](https://github.com/amayonaise/zetsu/releases) — binaries are intentionally **not** committed to the repository.
+
+Pushing a tag triggers `.github/workflows/release.yml`, which builds the MSI, the NSIS setup, and the Android APK, then attaches them to the release:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+For a **signed** APK, add these repository secrets before tagging:
+
+| Secret | Purpose |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | Your keystore, base64-encoded |
+| `ANDROID_KEYSTORE_PASSWORD` | Keystore password |
+| `ANDROID_KEY_ALIAS` | Key alias |
+| `ANDROID_KEY_PASSWORD` | Key password |
+| `VITE_DEFAULT_TMDB_KEY` | Optional default TMDB key |
+
+Without signing secrets the workflow still publishes the APK, but as `zetsu-android-unsigned.apk`.

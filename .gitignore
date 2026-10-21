@@ -26,3 +26,24 @@ dist-ssr
 # Tauri
 src-tauri/target
 src-tauri/resources
+src-tauri/gen
+
+# Build artifacts / release binaries (published as GitHub Release assets instead)
+*.apk
+*.aab
+*.msi
+*.dmg
+*.deb
+*.rpm
+*.AppImage
+*.exe
+
+# Environment / local overrides
+.env
+.env.*
+!.env.example
+
+# OS / editor
+Thumbs.db
+*.swp
+.DS_Store
