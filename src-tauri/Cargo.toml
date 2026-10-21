@@ -1,6 +1,6 @@
 [package]
 name = "zetsu"
-version = "1.0.0"
+version = "1.1.0"
 description = "Zetsu — Premium Desktop Streaming Platform for Movies, TV Shows, and Live Sports"
 authors = ["Zetsu Core Contributors"]
 edition = "2021"
